@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>Group Panel</title>
+
+  <!-- Telegram Mini App SDK — REQUIRED -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+
+  <style>
+    :root {
+      --tg-bg:       var(--tg-theme-bg-color, #17212b);
+      --tg-surface:  var(--tg-theme-secondary-bg-color, #232e3c);
+      --tg-text:     var(--tg-theme-text-color, #f5f5f5);
+      --tg-hint:     var(--tg-theme-hint-color, #708499);
+      --tg-accent:   var(--tg-theme-button-color, #2b82d9);
+      --tg-btn-text: var(--tg-theme-button-text-color, #ffffff);
+      --tg-link:     var(--tg-theme-link-color, #5eabf0);
+      --red:    #e05c5c;
+      --yellow: #d4a732;
+      --green:  #4caf82;
+      --radius: 14px;
+      --font:   'Plus Jakarta Sans', sans-serif;
+    }
+
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+    body {
+      font-family: var(--font);
+      background: var(--tg-bg);
+      color: var(--tg-text);
+      min-height: 100vh;
+      padding-bottom: 2rem;
+    }
+
+    .header {
+      background: var(--tg-surface);
+      padding: 1rem 1.2rem 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .header-icon {
+      width: 38px; height: 38px;
+      background: var(--tg-accent);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; flex-shrink: 0;
+    }
+
+    .header-info h1 { font-size: 1rem; font-weight: 700; }
+    .header-info p  { font-size: 0.72rem; color: var(--tg-hint); margin-top: 1px; }
+
+    #access-denied {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 60vh;
+      padding: 2rem;
+      text-align: center;
+      gap: 0.75rem;
+    }
+
+    #access-denied .big-icon { font-size: 3rem; }
+    #access-denied h2 { font-size: 1.1rem; font-weight: 700; }
+    #access-denied p  { font-size: 0.85rem; color: var(--tg-hint); line-height: 1.5; }
+
+    #loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 60vh;
+      gap: 1rem;
+    }
+
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid rgba(255,255,255,0.1);
+      border-top-color: var(--tg-accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { font-size: 0.85rem; color: var(--tg-hint); }
+
+    #panel { display: none; padding: 1rem; }
+
+    .group-selector {
+      background: var(--tg-surface);
+      border-radius: var(--radius);
+      padding: 0.9rem 1rem;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .group-selector select {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--tg-text);
+      font-family: var(--font);
+      font-size: 0.9rem;
+      font-weight: 600;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .group-selector select option { background: var(--tg-surface); }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.6rem;
+      margin-bottom: 1rem;
+    }
+
+    .stat {
+      background: var(--tg-surface);
+      border-radius: var(--radius);
+      padding: 0.9rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+    }
+
+    .stat-icon {
+      font-size: 1.4rem;
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.05);
+      border-radius: 9px;
+      flex-shrink: 0;
+    }
+
+    .stat-val   { font-size: 1.15rem; font-weight: 800; line-height: 1; }
+    .stat-label { font-size: 0.68rem; color: var(--tg-hint); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .card {
+      background: var(--tg-surface);
+      border-radius: var(--radius);
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .card-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--tg-hint);
+      margin-bottom: 0.85rem;
+    }
+
+    input, textarea {
+      width: 100%;
+      background: var(--tg-bg);
+      border: 1.5px solid rgba(255,255,255,0.07);
+      border-radius: 10px;
+      padding: 0.7rem 0.9rem;
+      color: var(--tg-text);
+      font-family: var(--font);
+      font-size: 0.88rem;
+      outline: none;
+      transition: border-color 0.18s;
+      margin-bottom: 0.6rem;
+    }
+
+    input:focus, textarea:focus { border-color: var(--tg-accent); }
+    textarea { resize: vertical; min-height: 80px; }
+
+    .btn-grid   { display: grid; grid-template-columns: 1fr 1fr;     gap: 0.5rem; margin-top: 0.2rem; }
+    .btn-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.2rem; }
+
+    .tg-btn {
+      padding: 0.65rem 0.5rem;
+      border: none;
+      border-radius: 10px;
+      font-family: var(--font);
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+      text-align: center;
+    }
+
+    .tg-btn:active { opacity: 0.75; transform: scale(0.97); }
+
+    .btn-primary { background: var(--tg-accent); color: var(--tg-btn-text); }
+    .btn-red     { background: rgba(224,92,92,0.18);  color: var(--red);    border: 1px solid rgba(224,92,92,0.25); }
+    .btn-yellow  { background: rgba(212,167,50,0.18); color: var(--yellow); border: 1px solid rgba(212,167,50,0.25); }
+    .btn-green   { background: rgba(76,175,130,0.18); color: var(--green);  border: 1px solid rgba(76,175,130,0.25); }
+    .btn-full    { grid-column: 1 / -1; }
+
+    .admin-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.65rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .admin-item:last-child { border-bottom: none; }
+    .admin-left { display: flex; align-items: center; gap: 0.65rem; }
+
+    .admin-avatar {
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--tg-accent), #5eabf0);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.85rem; font-weight: 700; color: #fff;
+      flex-shrink: 0;
+    }
+
+    .admin-name { font-size: 0.88rem; font-weight: 600; }
+    .admin-role { font-size: 0.68rem; color: var(--tg-hint); margin-top: 1px; }
+    .admin-actions { display: flex; gap: 0.35rem; }
+
+    .mini-btn {
+      padding: 0.28rem 0.55rem;
+      border-radius: 7px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      font-family: var(--font);
+    }
+
+    .mini-btn:active { opacity: 0.7; }
+    .mini-red    { background: rgba(224,92,92,0.18);  color: var(--red); }
+    .mini-yellow { background: rgba(212,167,50,0.18); color: var(--yellow); }
+
+    #toast {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--tg-surface);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 0.7rem 1.2rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      z-index: 999;
+      white-space: nowrap;
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+      max-width: 90vw;
+      text-align: center;
+    }
+
+    #toast.show    { transform: translateX(-50%) translateY(0); opacity: 1; }
+    #toast.success { color: var(--green);   border-color: rgba(76,175,130,0.3); }
+    #toast.error   { color: var(--red);     border-color: rgba(224,92,92,0.3); }
+    #toast.info    { color: var(--tg-link); }
+
+    .hint { font-size: 0.75rem; color: var(--tg-hint); text-align: center; padding: 0.5rem 0; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-icon">🤖</div>
+  <div class="header-info">
+    <h1>Group Control Panel</h1>
+    <p id="header-sub">Loading...</p>
+  </div>
+</div>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <p>Verifying access...</p>
+</div>
+
+<div id="access-denied">
+  <div class="big-icon">🚫</div>
+  <h2>Access Denied</h2>
+  <p>This panel is only for group owners.<br/>Open it from your group where you are the owner.</p>
+</div>
+
+<div id="panel">
+
+  <div class="group-selector">
+    <span>📂</span>
+    <select id="group-select" onchange="switchGroup()">
+      <option value="">Select your group...</option>
+    </select>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-icon">👥</div>
+      <div><div class="stat-val" id="s-members">—</div><div class="stat-label">Members</div></div>
+    </div>
+    <div class="stat">
+      <div class="stat-icon">🔨</div>
+      <div><div class="stat-val" id="s-bans">—</div><div class="stat-label">Bans</div></div>
+    </div>
+    <div class="stat">
+      <div class="stat-icon">🔇</div>
+      <div><div class="stat-val" id="s-mutes">—</div><div class="stat-label">Mutes</div></div>
+    </div>
+    <div class="stat">
+      <div class="stat-icon">⚠️</div>
+      <div><div class="stat-val" id="s-warns">—</div><div class="stat-label">Warns</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🛡️ Moderation</div>
+    <input id="mod-user"   placeholder="@username or user_id"/>
+    <input id="mod-reason" placeholder="Reason (optional)"/>
+    <div class="btn-grid-3">
+      <button class="tg-btn btn-red"    onclick="mod('ban')">🔨 Ban</button>
+      <button class="tg-btn btn-yellow" onclick="mod('kick')">👢 Kick</button>
+      <button class="tg-btn btn-yellow" onclick="mod('mute')">🔇 Mute</button>
+      <button class="tg-btn btn-green"  onclick="mod('unban')">✅ Unban</button>
+      <button class="tg-btn btn-green"  onclick="mod('unmute')">🔊 Unmute</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">⚠️ Warn User</div>
+    <input id="warn-user"   placeholder="@username or user_id"/>
+    <input id="warn-reason" placeholder="Reason"/>
+    <div class="btn-grid">
+      <button class="tg-btn btn-yellow" onclick="doWarn()">⚠️ Warn</button>
+      <button class="tg-btn btn-green"  onclick="doUnwarn()">✅ Remove</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📢 Send Message</div>
+    <textarea id="msg-text" placeholder="Type announcement here..."></textarea>
+    <div class="btn-grid">
+      <button class="tg-btn btn-primary" onclick="sendMsg()">📤 Send</button>
+      <button class="tg-btn btn-primary" onclick="sendPin()">📌 Send & Pin</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📋 Set Rules</div>
+    <textarea id="rules-text" placeholder="1. Be respectful&#10;2. No spam&#10;..."></textarea>
+    <button class="tg-btn btn-primary btn-full" style="width:100%;margin-top:0.2rem" onclick="setRules()">💾 Save Rules</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">👋 Welcome Message</div>
+    <textarea id="welcome-text" placeholder="Welcome {name} to {group}!"></textarea>
+    <button class="tg-btn btn-primary btn-full" style="width:100%;margin-top:0.2rem" onclick="setWelcome()">💾 Save Welcome</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">👑 Admins</div>
+    <div id="admins-list"><p class="hint">Select a group first</p></div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════
+//  ⚠️  CHANGE THIS to your InfinityFree URL
+const SERVER = 'https://YOUR-USERNAME.infinityfreeapp.com/server.php'; // ← CHANGE THIS TO YOUR URL
+// ══════════════════════════════════════════════
+
+const tg = window.Telegram.WebApp;
+tg.expand();
+tg.ready();
+tg.setHeaderColor('secondary_bg_color');
+
+let USER_ID  = null;
+let GROUP_ID = null;
+let TG_HASH  = null;
+
+async function init() {
+  const user = tg.initDataUnsafe?.user;
+  if (!user) { show('access-denied'); return; }
+
+  USER_ID = user.id;
+  TG_HASH = tg.initData;
+  document.getElementById('header-sub').textContent = user.username ? `@${user.username}` : user.first_name;
+
+  try {
+    const res = await api('init', {});
+    if (!res.ok || !res.groups?.length) { show('access-denied'); return; }
+
+    const sel = document.getElementById('group-select');
+    res.groups.forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g.id;
+      opt.textContent = g.title;
+      sel.appendChild(opt);
+    });
+
+    GROUP_ID = res.groups[0].id;
+    sel.value = GROUP_ID;
+    show('panel');
+    loadGroupData();
+  } catch(e) {
+    show('access-denied');
+  }
+}
+
+function show(id) {
+  ['loading','panel','access-denied'].forEach(x => {
+    const el = document.getElementById(x);
+    el.style.display = 'none';
+  });
+  if (id === 'panel') document.getElementById('panel').style.display = 'block';
+  else if (id === 'access-denied') document.getElementById('access-denied').style.display = 'flex';
+}
+
+function switchGroup() {
+  GROUP_ID = document.getElementById('group-select').value;
+  if (GROUP_ID) loadGroupData();
+}
+
+async function loadGroupData() {
+  if (!GROUP_ID) return;
+  const s = await api('stats', {});
+  if (s.ok) {
+    document.getElementById('s-members').textContent = s.members ?? '—';
+    document.getElementById('s-bans').textContent    = s.bans    ?? '0';
+    document.getElementById('s-mutes').textContent   = s.mutes   ?? '0';
+    document.getElementById('s-warns').textContent   = s.warns   ?? '0';
+  }
+
+  const a = await api('get_admins', {});
+  const el = document.getElementById('admins-list');
+  if (a.ok && a.admins?.length) {
+    el.innerHTML = a.admins.map(adm => `
+      <div class="admin-item">
+        <div class="admin-left">
+          <div class="admin-avatar">${(adm.name||'?')[0].toUpperCase()}</div>
+          <div>
+            <div class="admin-name">${esc(adm.name)}</div>
+            <div class="admin-role">${adm.status} · ${adm.id}</div>
+          </div>
+        </div>
+        <div class="admin-actions">
+          <button class="mini-btn mini-red"    onclick="quickAct('ban','${adm.id}')">Ban</button>
+          <button class="mini-btn mini-yellow" onclick="quickAct('mute','${adm.id}')">Mute</button>
+        </div>
+      </div>`).join('');
+  } else {
+    el.innerHTML = '<p class="hint">No admins found.</p>';
+  }
+}
+
+async function mod(type) {
+  const user   = document.getElementById('mod-user').value.trim();
+  const reason = document.getElementById('mod-reason').value.trim();
+  if (!user) { toast('Enter username or user ID', 'error'); return; }
+  const r = await api('moderate', { type, user, reason });
+  r.ok ? toast(`✅ ${cap(type)} done!`, 'success') : toast('❌ ' + (r.error||'Failed'), 'error');
+  if (r.ok) loadGroupData();
+}
+
+async function quickAct(type, uid) {
+  const r = await api('moderate', { type, user: String(uid), reason: `${cap(type)} via panel` });
+  r.ok ? toast(`✅ ${cap(type)} done!`, 'success') : toast('❌ ' + (r.error||'Failed'), 'error');
+  loadGroupData();
+}
+
+async function doWarn() {
+  const user   = document.getElementById('warn-user').value.trim();
+  const reason = document.getElementById('warn-reason').value.trim();
+  if (!user) { toast('Enter a user', 'error'); return; }
+  const r = await api('warn', { user, reason });
+  r.ok ? toast('⚠️ Warning issued!', 'success') : toast('❌ ' + (r.error||'Failed'), 'error');
+}
+
+async function doUnwarn() {
+  const user = document.getElementById('warn-user').value.trim();
+  if (!user) { toast('Enter a user', 'error'); return; }
+  const r = await api('unwarn', { user });
+  r.ok ? toast('✅ Warning removed!', 'success') : toast('❌ ' + (r.error||'Failed'), 'error');
+}
+
+async function sendMsg() {
+  const text = document.getElementById('msg-text').value.trim();
+  if (!text) { toast('Enter a message', 'error'); return; }
+  const r = await api('send_message', { text });
+  if (r.ok) { toast('✅ Sent!', 'success'); document.getElementById('msg-text').value = ''; }
+  else toast('❌ ' + (r.error||'Failed'), 'error');
+}
+
+async function sendPin() {
+  const text = document.getElementById('msg-text').value.trim();
+  if (!text) { toast('Enter a message', 'error'); return; }
+  const r = await api('send_and_pin', { text });
+  if (r.ok) { toast('✅ Sent & Pinned!', 'success'); document.getElementById('msg-text').value = ''; }
+  else toast('❌ ' + (r.error||'Failed'), 'error');
+}
+
+async function setRules() {
+  const rules = document.getElementById('rules-text').value.trim();
+  if (!rules) { toast('Enter rules', 'error'); return; }
+  const r = await api('set_rules', { rules });
+  r.ok ? toast('✅ Rules saved!', 'success') : toast('❌ ' + (r.error||'Failed'), 'error');
+}
+
+async function setWelcome() {
+  const msg = document.getElementById('welcome-text').value.trim();
+  if (!msg) { toast('Enter welcome message', 'error'); return; }
+  const r = await api('set_welcome', { msg });
+  r.ok ? toast('✅ Welcome saved!', 'success') : toast('❌ ' + (r.error||'Failed'), 'error');
+}
+
+async function api(action, extra) {
+  const body = { action, tg_init_data: TG_HASH, user_id: USER_ID, group_id: GROUP_ID, ...extra };
+  const res  = await fetch(SERVER, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  return res.json();
+}
+
+let toastT;
+function toast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.className = '', 3000);
+}
+
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+init();
+</script>
+</body>
+</html>
