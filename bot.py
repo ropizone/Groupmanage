@@ -1,4 +1,4 @@
-import logging, json, os, re
+import logging, json, os, re, asyncio
 from datetime import datetime, timedelta
 from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import (
@@ -145,28 +145,29 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("📋 Help", callback_data="show_help")
             ],
             [
-                InlineKeyboardButton("ℹ️ About", callback_data="show_about")
+                InlineKeyboardButton("ℹ️ About", callback_data="show_about"),
+                InlineKeyboardButton("👑 My Panel", callback_data="show_my_panel")
             ]
         ])
         await update.message.reply_text(
             f"👋 <b>Hello, {mention(user)}!</b>\n\n"
-            f"🤖 <b>Main hoon Mahakaal Bot</b> — Tera powerful group manager!\n\n"
-            f"<b>Main kya kar sakta hoon:</b>\n"
-            f"🔨 Ban / Kick / Mute / Warn karo\n"
-            f"📌 Messages pin karo\n"
-            f"🚫 Blacklist words auto-delete\n"
+            f"🤖 <b>I'm your powerful Group Manager Bot!</b>\n\n"
+            f"<b>What I can do:</b>\n"
+            f"🔨 Ban / Kick / Mute / Warn members\n"
+            f"📌 Pin & manage messages\n"
+            f"🚫 Auto-delete blacklisted words\n"
             f"⚠️ Anti-flood protection\n"
-            f"📢 Announcements broadcast karo\n"
-            f"📊 Group stats dekho\n"
-            f"🚨 Report system\n"
-            f"🔒 Group permissions lock/unlock\n\n"
-            f"👇 <b>Apne group mein add karo aur mujhe Admin bana do!</b>",
+            f"📢 Broadcast announcements\n"
+            f"📊 View group statistics\n"
+            f"🚨 Report system for users\n"
+            f"🔒 Lock / unlock group permissions\n\n"
+            f"👇 <b>Add me to your group and make me an Admin!</b>",
             parse_mode=ParseMode.HTML, reply_markup=kb
         )
     else:
         await update.message.reply_text(
-            f"👋 {mention(user)}, main active hoon!\n"
-            f"Commands dekhne ke liye /help likho.",
+            f"👋 {mention(user)}, I'm active and ready!\n"
+            f"Type /help to see all commands. 🤖",
             parse_mode=ParseMode.HTML
         )
 
@@ -175,7 +176,7 @@ async def on_join(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data = load()
     data = ensure_keys(data)
     cid = str(update.effective_chat.id)
-    
+
     for m in update.message.new_chat_members:
         if m.id == ctx.bot.id:
             # Bot was added to group — register it
@@ -187,13 +188,13 @@ async def on_join(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 owner_id = None
             await register_group(ctx, update.effective_chat, owner_id)
             await update.message.reply_text(
-                f"🙏 <b>Namaste!</b> Main Mahakaal Bot hoon!\n\n"
-                f"✅ <b>Mujhe admin banao aur main apna kaam karoonga:</b>\n"
-                f"• Users ban/kick/mute karna\n"
-                f"• Messages delete karna\n"
-                f"• Anti-flood & blacklist\n"
-                f"• Auto permissions manage karna\n\n"
-                f"📋 <b>Group owner /panel likhkar apna panel dekh sakta hai!</b>",
+                f"👋 <b>Hello everyone!</b> I'm your new Group Manager Bot!\n\n"
+                f"✅ <b>Make me an Admin and I'll handle:</b>\n"
+                f"• Banning / kicking / muting users\n"
+                f"• Deleting unwanted messages\n"
+                f"• Anti-flood & blacklist protection\n"
+                f"• Managing group permissions automatically\n\n"
+                f"👑 <b>Group owner: send /panel in DM to access your control panel!</b>",
                 parse_mode=ParseMode.HTML
             )
             return
@@ -211,8 +212,8 @@ async def on_join(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         else:
             text = (
                 f"👋 <b>Welcome to {update.effective_chat.title}!</b>\n"
-                f"Swagat hai {mention(m)} 🎉\n\n"
-                f"📋 Rules zaroor padho!"
+                f"Glad to have you here, {mention(m)}! 🎉\n\n"
+                f"📋 Please read the rules before chatting!"
             )
         await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
@@ -224,60 +225,61 @@ async def on_leave(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     m = update.message.left_chat_member
     if m and not m.is_bot:
         await update.message.reply_text(
-            f"😢 {mention(m)} ne group chhod diya.",
+            f"😢 {mention(m)} has left the group. Goodbye!",
             parse_mode=ParseMode.HTML
         )
 
 async def setwelcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can set the welcome message!")
     if not ctx.args:
         return await update.message.reply_text(
-            "Usage: /setwelcome <message>\n"
-            "Variables: {name} = user mention, {group} = group name"
+            "📝 <b>Usage:</b> /setwelcome &lt;message&gt;\n"
+            "✨ <b>Variables:</b> {name} = user mention, {group} = group name",
+            parse_mode=ParseMode.HTML
         )
     data = load()
     data = ensure_keys(data)
     cid = str(update.effective_chat.id)
     data["welcome"].setdefault(cid, {})["msg"] = " ".join(ctx.args)
     save(data)
-    await update.message.reply_text("✅ Welcome message set ho gaya!")
+    await update.message.reply_text("✅ Welcome message has been set successfully!")
 
 # ─── BAN / UNBAN ───────────────────────────────────────────────────────────────
 async def ban(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf group admins/owners ban kar sakte hain!")
+        return await update.message.reply_text("🚫 Only admins can ban users!")
     if not await bot_ok(update, ctx):
-        return await update.message.reply_text("❌ Pehle mujhe admin banao!")
-    
+        return await update.message.reply_text("❌ Make me an admin first!")
+
     user, reason = await resolve(update, ctx)
     if not user:
         return
-    
+
     # Can't ban bot owner
     if user.id == OWNER_ID:
-        return await update.message.reply_text("🚫 Bot owner ko ban nahi kar sakte!")
-    
+        return await update.message.reply_text("🛡️ The bot owner cannot be banned!")
+
     # Can't ban group owner/creator
     try:
         target_member = await update.effective_chat.get_member(user.id)
         if target_member.status == "creator":
-            return await update.message.reply_text("🚫 Group owner ko ban nahi kar sakte!")
+            return await update.message.reply_text("🛡️ The group owner cannot be banned!")
     except:
         pass
-    
+
     # Admins can only be banned by group owner or bot owner
     if await is_admin(update, ctx, user.id):
         if not (await is_group_owner(update) or update.effective_user.id == OWNER_ID):
-            return await update.message.reply_text("⚠️ Admin ko sirf group owner ban kar sakta hai!")
+            return await update.message.reply_text("⚠️ Only the group owner can ban an admin!")
 
     await update.effective_chat.ban_member(user.id)
     data = load()
     data = ensure_keys(data)
     track_stat(data, update.effective_chat.id, "bans")
     save(data)
-    
-    txt = f"🔨 <b>Ban!</b>\n👤 {mention(user)} ko ban kar diya gaya"
+
+    txt = f"🔨 <b>User Banned!</b>\n👤 {mention(user)} has been banned"
     if reason:
         txt += f"\n📝 <b>Reason:</b> {reason}"
     txt += f"\n👮 <b>By:</b> {mention(update.effective_user)}"
@@ -285,20 +287,23 @@ async def ban(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def unban(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins unban kar sakte hain!")
+        return await update.message.reply_text("🚫 Only admins can unban users!")
     user, _ = await resolve(update, ctx)
     if not user:
         return
     await update.effective_chat.unban_member(user.id)
-    await update.message.reply_text(f"✅ {mention(user)} unban ho gaya.", parse_mode=ParseMode.HTML)
+    await update.message.reply_text(
+        f"✅ {mention(user)} has been unbanned and can rejoin!",
+        parse_mode=ParseMode.HTML
+    )
 
 async def banlist(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can view this!")
     data = load()
     data = ensure_keys(data)
     cid = str(update.effective_chat.id)
-    bans = data["stats"].get(cid, {}).get("bans", 0)
+    bans  = data["stats"].get(cid, {}).get("bans", 0)
     kicks = data["stats"].get(cid, {}).get("kicks", 0)
     mutes = data["stats"].get(cid, {}).get("mutes", 0)
     warns = data["stats"].get(cid, {}).get("warns", 0)
@@ -314,54 +319,55 @@ async def banlist(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ─── KICK ──────────────────────────────────────────────────────────────────────
 async def kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins kick kar sakte hain!")
+        return await update.message.reply_text("🚫 Only admins can kick users!")
     if not await bot_ok(update, ctx):
-        return await update.message.reply_text("❌ Pehle mujhe admin banao!")
+        return await update.message.reply_text("❌ Make me an admin first!")
     user, reason = await resolve(update, ctx)
     if not user:
         return
     if user.id == OWNER_ID:
-        return await update.message.reply_text("🚫 Bot owner ko kick nahi kar sakte!")
+        return await update.message.reply_text("🛡️ The bot owner cannot be kicked!")
     try:
         target = await update.effective_chat.get_member(user.id)
         if target.status == "creator":
-            return await update.message.reply_text("🚫 Group owner ko kick nahi kar sakte!")
+            return await update.message.reply_text("🛡️ The group owner cannot be kicked!")
     except:
         pass
     if await is_admin(update, ctx, user.id):
         if not (await is_group_owner(update) or update.effective_user.id == OWNER_ID):
-            return await update.message.reply_text("⚠️ Admin ko sirf group owner kick kar sakta hai!")
+            return await update.message.reply_text("⚠️ Only the group owner can kick an admin!")
     await update.effective_chat.ban_member(user.id)
     await update.effective_chat.unban_member(user.id)
     data = load()
     data = ensure_keys(data)
     track_stat(data, update.effective_chat.id, "kicks")
     save(data)
-    txt = f"👢 <b>Kick!</b>\n👤 {mention(user)} ko kick kar diya"
+    txt = f"👢 <b>User Kicked!</b>\n👤 {mention(user)} has been kicked from the group"
     if reason:
         txt += f"\n📝 <b>Reason:</b> {reason}"
+    txt += f"\n👮 <b>By:</b> {mention(update.effective_user)}"
     await update.message.reply_text(txt, parse_mode=ParseMode.HTML)
 
 # ─── MUTE / UNMUTE ─────────────────────────────────────────────────────────────
 async def mute(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins mute kar sakte hain!")
+        return await update.message.reply_text("🚫 Only admins can mute users!")
     if not await bot_ok(update, ctx):
-        return await update.message.reply_text("❌ Pehle mujhe admin banao!")
+        return await update.message.reply_text("❌ Make me an admin first!")
     user, reason = await resolve(update, ctx)
     if not user:
         return
     if user.id == OWNER_ID:
-        return await update.message.reply_text("🚫 Bot owner ko mute nahi kar sakte!")
+        return await update.message.reply_text("🛡️ The bot owner cannot be muted!")
     try:
         target = await update.effective_chat.get_member(user.id)
         if target.status == "creator":
-            return await update.message.reply_text("🚫 Group owner ko mute nahi kar sakte!")
+            return await update.message.reply_text("🛡️ The group owner cannot be muted!")
     except:
         pass
     if await is_admin(update, ctx, user.id):
         if not (await is_group_owner(update) or update.effective_user.id == OWNER_ID):
-            return await update.message.reply_text("⚠️ Admin ko sirf group owner mute kar sakta hai!")
+            return await update.message.reply_text("⚠️ Only the group owner can mute an admin!")
     args = ctx.args or []
     duration, time_str = None, ""
     for a in args:
@@ -377,40 +383,71 @@ async def mute(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data = ensure_keys(data)
     track_stat(data, update.effective_chat.id, "mutes")
     save(data)
-    txt = f"🔇 <b>Muted!</b>\n👤 {mention(user)}"
+    txt = f"🔇 <b>User Muted!</b>\n👤 {mention(user)}"
     if time_str:
-        txt += f" — <b>{time_str} ke liye</b>"
+        txt += f" — <b>for {time_str}</b>"
     else:
         txt += " — <b>Permanently</b>"
     if reason:
         txt += f"\n📝 <b>Reason:</b> {reason}"
+    txt += f"\n👮 <b>By:</b> {mention(update.effective_user)}"
     await update.message.reply_text(txt, parse_mode=ParseMode.HTML)
 
 async def unmute(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins unmute kar sakte hain!")
+        return await update.message.reply_text("🚫 Only admins can unmute users!")
+    if not await bot_ok(update, ctx):
+        return await update.message.reply_text("❌ Make me an admin first!")
     user, _ = await resolve(update, ctx)
     if not user:
         return
-    await update.effective_chat.restrict_member(user.id, ChatPermissions(
-        can_send_messages=True, can_send_media_messages=True, can_send_polls=True,
-        can_send_other_messages=True, can_add_web_page_previews=True
-    ))
-    await update.message.reply_text(f"🔊 {mention(user)} unmute ho gaya.", parse_mode=ParseMode.HTML)
+    try:
+        # FIX: Restore full default permissions
+        await update.effective_chat.restrict_member(
+            user.id,
+            ChatPermissions(
+                can_send_messages=True,
+                can_send_audios=True,
+                can_send_documents=True,
+                can_send_photos=True,
+                can_send_videos=True,
+                can_send_video_notes=True,
+                can_send_voice_notes=True,
+                can_send_polls=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True,
+                can_change_info=False,
+                can_invite_users=True,
+                can_pin_messages=False,
+            )
+        )
+        await update.message.reply_text(
+            f"🔊 <b>User Unmuted!</b>\n👤 {mention(user)} can now send messages again.\n"
+            f"👮 <b>By:</b> {mention(update.effective_user)}",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to unmute: {e}")
 
 # ─── WARN ──────────────────────────────────────────────────────────────────────
 MAX_WARNS = 3
 
 async def warn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins warn kar sakte hain!")
+        return await update.message.reply_text("🚫 Only admins can warn users!")
     user, reason = await resolve(update, ctx)
     if not user:
         return
     if user.id == OWNER_ID:
-        return await update.message.reply_text("🚫 Bot owner ko warn nahi kar sakte!")
+        return await update.message.reply_text("🛡️ The bot owner cannot be warned!")
+    try:
+        target = await update.effective_chat.get_member(user.id)
+        if target.status == "creator":
+            return await update.message.reply_text("🛡️ The group owner cannot be warned!")
+    except:
+        pass
     if await is_admin(update, ctx, user.id):
-        return await update.message.reply_text("⚠️ Admin ko warn nahi kar sakte!")
+        return await update.message.reply_text("⚠️ Admins cannot be warned!")
     data = load()
     data = ensure_keys(data)
     cid, uid = str(update.effective_chat.id), str(user.id)
@@ -421,17 +458,18 @@ async def warn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     save(data)
     txt = f"⚠️ <b>Warning {count}/{MAX_WARNS}</b>\n👤 {mention(user)}"
     if reason:
-        txt += f"\n📝 {reason}"
+        txt += f"\n📝 <b>Reason:</b> {reason}"
+    txt += f"\n👮 <b>By:</b> {mention(update.effective_user)}"
     if count >= MAX_WARNS:
         await update.effective_chat.ban_member(user.id)
         data["warns"][cid][uid] = []
         save(data)
-        txt += f"\n\n🔨 <b>{MAX_WARNS} warnings = AUTO BAN!</b>"
+        txt += f"\n\n🔨 <b>{MAX_WARNS} warnings reached → AUTO BANNED!</b>"
     await update.message.reply_text(txt, parse_mode=ParseMode.HTML)
 
 async def unwarn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can remove warnings!")
     user, _ = await resolve(update, ctx)
     if not user:
         return
@@ -444,11 +482,11 @@ async def unwarn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         save(data)
         remaining = len(data["warns"][cid][uid])
         await update.message.reply_text(
-            f"✅ {mention(user)} se 1 warning hata di. ({remaining}/{MAX_WARNS})",
+            f"✅ Removed 1 warning from {mention(user)}. ({remaining}/{MAX_WARNS} remaining)",
             parse_mode=ParseMode.HTML
         )
     else:
-        await update.message.reply_text("ℹ️ Koi warning nahi mili is user ki.")
+        await update.message.reply_text(f"ℹ️ {mention(user)} has no warnings.", parse_mode=ParseMode.HTML)
 
 async def warns_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user, _ = await resolve(update, ctx)
@@ -459,16 +497,16 @@ async def warns_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     wlist = data["warns"].get(str(update.effective_chat.id), {}).get(str(user.id), [])
     if not wlist:
         return await update.message.reply_text(
-            f"✅ {mention(user)} ke koi warnings nahi hain.", parse_mode=ParseMode.HTML
+            f"✅ {mention(user)} has no warnings.", parse_mode=ParseMode.HTML
         )
     txt = f"⚠️ <b>{mention(user)} — {len(wlist)}/{MAX_WARNS} warnings:</b>\n"
     for i, w in enumerate(wlist, 1):
-        txt += f"\n{i}. {w.get('reason') or 'No reason'} <i>({w.get('time','')[:10]})</i>"
+        txt += f"\n{i}. {w.get('reason') or 'No reason given'} <i>({w.get('time','')[:10]})</i>"
     await update.message.reply_text(txt, parse_mode=ParseMode.HTML)
 
 async def resetwarns(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can reset warnings!")
     user, _ = await resolve(update, ctx)
     if not user:
         return
@@ -477,38 +515,44 @@ async def resetwarns(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cid, uid = str(update.effective_chat.id), str(user.id)
     data["warns"].setdefault(cid, {})[uid] = []
     save(data)
-    await update.message.reply_text(f"✅ {mention(user)} ke saare warns reset!", parse_mode=ParseMode.HTML)
+    await update.message.reply_text(
+        f"✅ All warnings cleared for {mention(user)}!",
+        parse_mode=ParseMode.HTML
+    )
 
 # ─── REPORT ────────────────────────────────────────────────────────────────────
 async def report(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Any user can report — goes to group owner + all admins in DM"""
+    """Any user can report — goes to all admins in DM"""
     if update.effective_chat.type == "private":
-        return await update.message.reply_text("❌ Group mein use karo!")
-    
+        return await update.message.reply_text("❌ Use this command inside a group!")
+
     reporter = update.effective_user
     chat = update.effective_chat
     reason = " ".join(ctx.args) if ctx.args else ""
-    
+
     if update.message.reply_to_message:
         reported_user = update.message.reply_to_message.from_user
-        reported_msg = update.message.reply_to_message.text or "[media]"
+        reported_msg = update.message.reply_to_message.text or "[media/file]"
     else:
-        await update.message.reply_text("❌ Kisi message ko reply karke /report likho!")
+        await update.message.reply_text("❌ Reply to a message first, then use /report!")
         return
-    
+
     if reported_user.id == reporter.id:
-        return await update.message.reply_text("😂 Khud ko report kar rahe ho?")
-    
+        return await update.message.reply_text("😅 You can't report yourself!")
+
+    if reported_user.is_bot:
+        return await update.message.reply_text("🤖 You can't report a bot!")
+
     report_text = (
         f"🚨 <b>NEW REPORT!</b>\n\n"
         f"📢 <b>Group:</b> {chat.title} (<code>{chat.id}</code>)\n"
         f"👤 <b>Reported User:</b> {mention(reported_user)} (<code>{reported_user.id}</code>)\n"
-        f"📝 <b>Reported Message:</b> {reported_msg[:200]}\n"
+        f"📝 <b>Message:</b> {reported_msg[:200]}\n"
         f"👮 <b>Reporter:</b> {mention(reporter)}\n"
         f"📋 <b>Reason:</b> {reason or 'Not specified'}\n\n"
         f"⚡ <b>Quick Actions:</b>"
     )
-    
+
     kb = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🔨 Ban", callback_data=f"rpt_ban_{chat.id}_{reported_user.id}"),
@@ -520,7 +564,7 @@ async def report(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ],
         [InlineKeyboardButton("✅ Dismiss", callback_data="rpt_dismiss")]
     ])
-    
+
     # Send to all admins in DM
     try:
         admins = await chat.get_administrators()
@@ -533,41 +577,41 @@ async def report(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 sent_to += 1
             except:
                 pass  # User hasn't started bot
-        
+
         await update.message.reply_text(
-            f"✅ Report bhej diya! {sent_to} admin(s) ko notify kiya gaya.\n"
-            f"<i>Admins jaldi action lenge.</i>",
+            f"✅ <b>Report submitted!</b> {sent_to} admin(s) have been notified.\n"
+            f"<i>Admins will take action shortly.</i>",
             parse_mode=ParseMode.HTML
         )
     except Exception as e:
-        await update.message.reply_text("❌ Report bhejne mein error aaya. Admins ko manually tag karo.")
+        await update.message.reply_text("❌ Failed to send report. Please tag an admin manually.")
 
 async def report_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle report action buttons"""
     q = update.callback_query
     await q.answer()
-    
+
     if q.data == "rpt_dismiss":
-        await q.message.edit_text("✅ Report dismiss kar diya.", reply_markup=None)
+        await q.message.edit_text("✅ Report dismissed.", reply_markup=None)
         return
-    
+
     parts = q.data.split("_")
     action = parts[1]
     chat_id = int(parts[2])
     user_id = int(parts[3])
-    
+
     try:
         if action == "ban":
             await ctx.bot.ban_chat_member(chat_id, user_id)
-            await q.message.edit_text(f"🔨 User ({user_id}) ban ho gaya!", reply_markup=None)
+            await q.message.edit_text(f"🔨 User ({user_id}) has been banned!", reply_markup=None)
         elif action == "kick":
             await ctx.bot.ban_chat_member(chat_id, user_id)
             await ctx.bot.unban_chat_member(chat_id, user_id)
-            await q.message.edit_text(f"👢 User ({user_id}) kick ho gaya!", reply_markup=None)
+            await q.message.edit_text(f"👢 User ({user_id}) has been kicked!", reply_markup=None)
         elif action == "mute":
             until = datetime.now() + timedelta(hours=1)
             await ctx.bot.restrict_chat_member(chat_id, user_id, ChatPermissions(can_send_messages=False), until_date=until)
-            await q.message.edit_text(f"🔇 User ({user_id}) 1 ghante ke liye mute!", reply_markup=None)
+            await q.message.edit_text(f"🔇 User ({user_id}) muted for 1 hour!", reply_markup=None)
         elif action == "warn":
             data = load()
             data = ensure_keys(data)
@@ -580,9 +624,9 @@ async def report_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 await ctx.bot.ban_chat_member(chat_id, user_id)
                 data["warns"][cid_str][uid_str] = []
             save(data)
-            await q.message.edit_text(f"⚠️ User ({user_id}) ko warn diya! ({count}/{MAX_WARNS})", reply_markup=None)
+            await q.message.edit_text(f"⚠️ User ({user_id}) warned! ({count}/{MAX_WARNS})", reply_markup=None)
     except Exception as e:
-        await q.message.reply_text(f"❌ Action fail hua: {e}")
+        await q.message.reply_text(f"❌ Action failed: {e}")
 
 # ─── LOCK / UNLOCK ─────────────────────────────────────────────────────────────
 LOCK_TYPES = {
@@ -596,18 +640,19 @@ LOCK_TYPES = {
 
 async def lock(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins lock kar sakte hain!")
+        return await update.message.reply_text("🚫 Only admins can lock the group!")
     if not await bot_ok(update, ctx):
-        return await update.message.reply_text("❌ Pehle mujhe admin banao!")
+        return await update.message.reply_text("❌ Make me an admin first!")
     if not ctx.args:
         return await update.message.reply_text(
-            "Usage: /lock <type>\n"
-            "Types: msg, media, polls, links, stickers, all"
+            "🔒 <b>Usage:</b> /lock &lt;type&gt;\n"
+            "📋 <b>Types:</b> msg, media, polls, links, stickers, all",
+            parse_mode=ParseMode.HTML
         )
     lock_type = ctx.args[0].lower()
     if lock_type not in LOCK_TYPES:
         return await update.message.reply_text("❌ Valid types: msg, media, polls, links, stickers, all")
-    
+
     if lock_type == "all":
         perms = ChatPermissions(
             can_send_messages=False, can_send_media_messages=False,
@@ -625,21 +670,29 @@ async def lock(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         }
         kwargs[LOCK_TYPES[lock_type]] = False
         perms = ChatPermissions(**kwargs)
-    
+
     await update.effective_chat.set_permissions(perms)
-    await update.message.reply_text(f"🔒 <b>{lock_type}</b> lock ho gaya!", parse_mode=ParseMode.HTML)
+    await update.message.reply_text(
+        f"🔒 <b>{lock_type.upper()}</b> is now locked!\n"
+        f"Only admins can use this feature.",
+        parse_mode=ParseMode.HTML
+    )
 
 async def unlock(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins unlock kar sakte hain!")
+        return await update.message.reply_text("🚫 Only admins can unlock the group!")
     if not await bot_ok(update, ctx):
-        return await update.message.reply_text("❌ Pehle mujhe admin banao!")
+        return await update.message.reply_text("❌ Make me an admin first!")
     if not ctx.args:
-        return await update.message.reply_text("Usage: /unlock <type>\nTypes: msg, media, polls, links, stickers, all")
+        return await update.message.reply_text(
+            "🔓 <b>Usage:</b> /unlock &lt;type&gt;\n"
+            "📋 <b>Types:</b> msg, media, polls, links, stickers, all",
+            parse_mode=ParseMode.HTML
+        )
     lock_type = ctx.args[0].lower()
     if lock_type not in LOCK_TYPES:
         return await update.message.reply_text("❌ Valid types: msg, media, polls, links, stickers, all")
-    
+
     if lock_type == "all":
         perms = ChatPermissions(
             can_send_messages=True, can_send_media_messages=True,
@@ -657,16 +710,20 @@ async def unlock(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         }
         kwargs[LOCK_TYPES[lock_type]] = True
         perms = ChatPermissions(**kwargs)
-    
+
     await update.effective_chat.set_permissions(perms)
-    await update.message.reply_text(f"🔓 <b>{lock_type}</b> unlock ho gaya!", parse_mode=ParseMode.HTML)
+    await update.message.reply_text(
+        f"🔓 <b>{lock_type.upper()}</b> is now unlocked!\n"
+        f"All members can use this feature again.",
+        parse_mode=ParseMode.HTML
+    )
 
 # ─── GROUP OWNER PRIVATE PANEL ─────────────────────────────────────────────────
 async def panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Group owner panel — works in private chat too"""
+    """Group owner panel — works in both group and private chat"""
     uid = update.effective_user.id
     chat = update.effective_chat
-    
+
     if chat.type == "private":
         # Show list of groups where user is owner
         data = load()
@@ -677,30 +734,42 @@ async def panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ]
         if not owner_groups:
             return await update.message.reply_text(
-                "❌ Koi group nahi mila jahan tum owner ho.\n"
-                "Group mein /panel likho pehle!"
+                "❌ <b>No groups found where you are the owner.</b>\n\n"
+                "💡 Go to your group and type /panel there first so the bot registers you as owner!",
+                parse_mode=ParseMode.HTML
             )
         buttons = []
         for cid, info in owner_groups:
             buttons.append([InlineKeyboardButton(
-                f"📂 {info.get('title', 'Unknown')}",
+                f"📂 {info.get('title', 'Unknown Group')}",
                 callback_data=f"grppanel_{cid}"
             )])
         await update.message.reply_text(
-            "👑 <b>Tumhare Groups:</b>\n\nKis group ka panel dekhna hai?",
+            "👑 <b>Your Groups</b>\n\nSelect a group to manage:",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(buttons)
         )
         return
-    
-    # In group — check if owner
+
+    # In group — check if owner or bot owner
     if not await is_group_owner(update) and uid != OWNER_ID:
         return await update.message.reply_text(
-            "🚫 Sirf group owner use kar sakta hai /panel!\n"
-            "Admins /stats dekh sakte hain."
+            "🚫 Only the group owner can use /panel!\n"
+            "💡 Admins can use /stats instead."
         )
-    
-    await show_group_panel_inline(update, ctx, str(chat.id))
+
+    # FIX: Send panel link to DM for easier access
+    bot_username = ctx.bot.username
+    deep_link = f"https://t.me/{bot_username}?start=panel_{chat.id}"
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("👑 Open Panel in DM", url=deep_link)
+    ]])
+    await update.message.reply_text(
+        f"👑 <b>Owner Panel Ready!</b>\n\n"
+        f"Click the button below to open your full control panel in private chat 👇",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb
+    )
 
 async def show_group_panel_inline(update, ctx, cid):
     """Show full panel for a group"""
@@ -708,7 +777,7 @@ async def show_group_panel_inline(update, ctx, cid):
     data = ensure_keys(data)
     s = data["stats"].get(cid, {})
     msg_count = sum(data["msg_count"].get(cid, {}).values())
-    
+
     try:
         chat_obj = await ctx.bot.get_chat(int(cid))
         member_count = await ctx.bot.get_chat_member_count(int(cid))
@@ -716,7 +785,7 @@ async def show_group_panel_inline(update, ctx, cid):
     except:
         member_count = 0
         group_title = data["groups"].get(cid, {}).get("title", "Unknown")
-    
+
     kb = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("📊 Full Stats", callback_data=f"gp_stats_{cid}"),
@@ -732,9 +801,9 @@ async def show_group_panel_inline(update, ctx, cid):
         ],
         [InlineKeyboardButton("🔄 Refresh", callback_data=f"grppanel_{cid}")]
     ])
-    
+
     txt = (
-        f"👑 <b>OWNER PANEL</b>\n"
+        f"👑 <b>OWNER CONTROL PANEL</b>\n"
         f"📂 <b>{group_title}</b>\n\n"
         f"👥 Members: <b>{member_count}</b>\n"
         f"💬 Total Messages: <b>{msg_count}</b>\n\n"
@@ -743,18 +812,18 @@ async def show_group_panel_inline(update, ctx, cid):
         f"👢 Kicks: <b>{s.get('kicks', 0)}</b>\n"
         f"🔇 Mutes: <b>{s.get('mutes', 0)}</b>\n"
         f"⚠️ Warns: <b>{s.get('warns', 0)}</b>\n\n"
-        f"<i>Last updated: {datetime.now().strftime('%d %b %Y %H:%M')}</i>"
+        f"<i>🕐 Last updated: {datetime.now().strftime('%d %b %Y %H:%M')}</i>"
     )
     await update.effective_message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 async def show_group_panel(update, ctx, cid):
-    """Called from deep link"""
+    """Called from deep link in DM"""
     uid = update.effective_user.id
     data = load()
     data = ensure_keys(data)
     group_info = data["groups"].get(cid, {})
     if group_info.get("owner_id") != uid and uid != OWNER_ID:
-        return await update.message.reply_text("🚫 Yeh panel sirf group owner ke liye hai!")
+        return await update.message.reply_text("🚫 This panel is only for the group owner!")
     await show_group_panel_inline(update, ctx, cid)
 
 async def group_panel_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -763,102 +832,119 @@ async def group_panel_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     uid = update.effective_user.id
     parts = q.data.split("_")
-    action = parts[1]
-    cid = parts[2] if len(parts) > 2 else None
 
-    if not cid:
+    # Handle grppanel_ prefix (2 parts: grppanel + cid)
+    if q.data.startswith("grppanel_"):
+        cid = q.data.replace("grppanel_", "")
+        data = load()
+        data = ensure_keys(data)
+        group_info = data["groups"].get(cid, {})
+        if group_info.get("owner_id") != uid and uid != OWNER_ID:
+            return await q.message.reply_text("🚫 Only the group owner can use this!")
+        await show_group_panel_inline(update, ctx, cid)
         return
 
-    data = load()
-    data = ensure_keys(data)
-    group_info = data["groups"].get(cid, {})
-    
-    # Verify ownership
-    if group_info.get("owner_id") != uid and uid != OWNER_ID:
-        return await q.message.reply_text("🚫 Sirf group owner use kar sakta hai!")
+    # Handle gp_ prefix (3 parts: gp + action + cid)
+    if q.data.startswith("gp_"):
+        # Split carefully — cid can be negative (supergroups)
+        remainder = q.data[3:]  # Remove "gp_"
+        underscore_idx = remainder.index("_")
+        action = remainder[:underscore_idx]
+        cid = remainder[underscore_idx + 1:]
 
-    if action == "panel":
-        await show_group_panel_inline(update, ctx, cid)
-        
-    elif action == "stats":
-        s = data["stats"].get(cid, {})
-        msg_count = sum(data["msg_count"].get(cid, {}).values())
-        warns_data = data["warns"].get(cid, {})
-        warned_users = sum(1 for w in warns_data.values() if w)
-        await q.message.reply_text(
-            f"📊 <b>Detailed Stats</b>\n\n"
-            f"💬 Total Messages: <b>{msg_count}</b>\n"
-            f"🔨 Bans: <b>{s.get('bans', 0)}</b>\n"
-            f"👢 Kicks: <b>{s.get('kicks', 0)}</b>\n"
-            f"🔇 Mutes: <b>{s.get('mutes', 0)}</b>\n"
-            f"⚠️ Warns: <b>{s.get('warns', 0)}</b>\n"
-            f"👤 Users with warnings: <b>{warned_users}</b>",
-            parse_mode=ParseMode.HTML
-        )
-    elif action == "members":
-        try:
-            count = await ctx.bot.get_chat_member_count(int(cid))
-            await q.message.reply_text(f"👥 Total Members: <b>{count}</b>", parse_mode=ParseMode.HTML)
-        except:
-            await q.message.reply_text("❌ Members count nahi mila.")
-            
-    elif action == "admins":
-        try:
-            admins = await ctx.bot.get_chat_administrators(int(cid))
-            txt = "👮 <b>Group Admins:</b>\n\n"
-            for a in admins:
-                if not a.user.is_bot:
-                    role = "👑 Owner" if a.status == "creator" else "⭐ Admin"
-                    txt += f"• {mention(a.user)} — {role}\n"
-            await q.message.reply_text(txt, parse_mode=ParseMode.HTML)
-        except:
-            await q.message.reply_text("❌ Admins list nahi mila.")
-            
-    elif action == "bl":
-        bl = data["blacklist"].get(cid, [])
-        if not bl:
-            await q.message.reply_text("🚫 Blacklist khali hai.")
-        else:
+        data = load()
+        data = ensure_keys(data)
+        group_info = data["groups"].get(cid, {})
+
+        if group_info.get("owner_id") != uid and uid != OWNER_ID:
+            return await q.message.reply_text("🚫 Only the group owner can use this!")
+
+        if action == "stats":
+            s = data["stats"].get(cid, {})
+            msg_count = sum(data["msg_count"].get(cid, {}).values())
+            warns_data = data["warns"].get(cid, {})
+            warned_users = sum(1 for w in warns_data.values() if w)
             await q.message.reply_text(
-                "🚫 <b>Blacklisted Words:</b>\n\n" + "\n".join(f"• <code>{w}</code>" for w in bl),
+                f"📊 <b>Detailed Stats</b>\n\n"
+                f"💬 Total Messages: <b>{msg_count}</b>\n"
+                f"🔨 Bans: <b>{s.get('bans', 0)}</b>\n"
+                f"👢 Kicks: <b>{s.get('kicks', 0)}</b>\n"
+                f"🔇 Mutes: <b>{s.get('mutes', 0)}</b>\n"
+                f"⚠️ Total Warns: <b>{s.get('warns', 0)}</b>\n"
+                f"👤 Users currently warned: <b>{warned_users}</b>",
                 parse_mode=ParseMode.HTML
             )
-    elif action == "lock":
-        try:
-            await ctx.bot.set_chat_permissions(int(cid), ChatPermissions(can_send_messages=False))
-            await q.message.reply_text("🔒 Group lock ho gaya! Sirf admins message kar sakte hain.")
-        except:
-            await q.message.reply_text("❌ Lock nahi ho saka. Bot ko admin hona chahiye.")
-            
-    elif action == "unlock":
-        try:
-            await ctx.bot.set_chat_permissions(int(cid), ChatPermissions(
-                can_send_messages=True, can_send_media_messages=True,
-                can_send_polls=True, can_send_other_messages=True,
-                can_add_web_page_previews=True
-            ))
-            await q.message.reply_text("🔓 Group unlock ho gaya! Sab message kar sakte hain.")
-        except:
-            await q.message.reply_text("❌ Unlock nahi ho saka.")
+        elif action == "members":
+            try:
+                count = await ctx.bot.get_chat_member_count(int(cid))
+                await q.message.reply_text(f"👥 <b>Total Members:</b> {count}", parse_mode=ParseMode.HTML)
+            except:
+                await q.message.reply_text("❌ Could not fetch member count.")
+
+        elif action == "admins":
+            try:
+                admins = await ctx.bot.get_chat_administrators(int(cid))
+                txt = "👮 <b>Group Admins:</b>\n\n"
+                for a in admins:
+                    if not a.user.is_bot:
+                        role = "👑 Owner" if a.status == "creator" else "⭐ Admin"
+                        txt += f"• {mention(a.user)} — {role}\n"
+                await q.message.reply_text(txt, parse_mode=ParseMode.HTML)
+            except:
+                await q.message.reply_text("❌ Could not fetch admin list.")
+
+        elif action == "bl":
+            bl = data["blacklist"].get(cid, [])
+            if not bl:
+                await q.message.reply_text("🚫 The blacklist is empty.")
+            else:
+                await q.message.reply_text(
+                    "🚫 <b>Blacklisted Words:</b>\n\n" + "\n".join(f"• <code>{w}</code>" for w in bl),
+                    parse_mode=ParseMode.HTML
+                )
+
+        elif action == "lock":
+            try:
+                await ctx.bot.set_chat_permissions(int(cid), ChatPermissions(can_send_messages=False))
+                await q.message.reply_text("🔒 Group locked! Only admins can send messages now.")
+            except:
+                await q.message.reply_text("❌ Failed to lock. Make sure I'm an admin in that group.")
+
+        elif action == "unlock":
+            try:
+                await ctx.bot.set_chat_permissions(int(cid), ChatPermissions(
+                    can_send_messages=True, can_send_media_messages=True,
+                    can_send_polls=True, can_send_other_messages=True,
+                    can_add_web_page_previews=True
+                ))
+                await q.message.reply_text("🔓 Group unlocked! Everyone can send messages again.")
+            except:
+                await q.message.reply_text("❌ Failed to unlock.")
 
 # ─── RULES ─────────────────────────────────────────────────────────────────────
 async def setrules(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can set rules!")
     if not ctx.args:
-        return await update.message.reply_text("Usage: /setrules <rules text>")
+        return await update.message.reply_text(
+            "📋 <b>Usage:</b> /setrules &lt;rules text&gt;",
+            parse_mode=ParseMode.HTML
+        )
     data = load()
     data = ensure_keys(data)
     data["rules"][str(update.effective_chat.id)] = " ".join(ctx.args)
     save(data)
-    await update.message.reply_text("✅ Rules set ho gaye!")
+    await update.message.reply_text("✅ Group rules have been updated!")
 
 async def rules(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data = load()
     data = ensure_keys(data)
     r = data["rules"].get(str(update.effective_chat.id))
     if not r:
-        return await update.message.reply_text("📋 Koi rules set nahi hain. Admin: /setrules <text>")
+        return await update.message.reply_text(
+            "📋 No rules have been set yet.\n👮 Admin: use /setrules &lt;text&gt; to set them.",
+            parse_mode=ParseMode.HTML
+        )
     await update.message.reply_text(
         f"📋 <b>{update.effective_chat.title} — Rules:</b>\n\n{r}",
         parse_mode=ParseMode.HTML
@@ -867,9 +953,9 @@ async def rules(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ─── BLACKLIST ─────────────────────────────────────────────────────────────────
 async def addbl(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can modify the blacklist!")
     if not ctx.args:
-        return await update.message.reply_text("Usage: /addbl <word>")
+        return await update.message.reply_text("📝 Usage: /addbl &lt;word&gt;", parse_mode=ParseMode.HTML)
     word = ctx.args[0].lower()
     data = load()
     data = ensure_keys(data)
@@ -878,13 +964,15 @@ async def addbl(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if word not in data["blacklist"][cid]:
         data["blacklist"][cid].append(word)
         save(data)
-    await update.message.reply_text(f"✅ `{word}` blacklist mein add ho gaya.", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(f"✅ Word <code>{word}</code> added to blacklist!", parse_mode=ParseMode.HTML)
+    else:
+        await update.message.reply_text(f"ℹ️ Word <code>{word}</code> is already blacklisted!", parse_mode=ParseMode.HTML)
 
 async def delbl(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can modify the blacklist!")
     if not ctx.args:
-        return await update.message.reply_text("Usage: /delbl <word>")
+        return await update.message.reply_text("📝 Usage: /delbl &lt;word&gt;", parse_mode=ParseMode.HTML)
     word = ctx.args[0].lower()
     data = load()
     data = ensure_keys(data)
@@ -892,16 +980,16 @@ async def delbl(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if word in data["blacklist"].get(cid, []):
         data["blacklist"][cid].remove(word)
         save(data)
-        await update.message.reply_text(f"🗑️ `{word}` remove ho gaya.", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(f"🗑️ Word <code>{word}</code> removed from blacklist!", parse_mode=ParseMode.HTML)
     else:
-        await update.message.reply_text("❌ Word blacklist mein nahi hai.")
+        await update.message.reply_text(f"❌ Word <code>{word}</code> is not in the blacklist.", parse_mode=ParseMode.HTML)
 
 async def blacklist_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data = load()
     data = ensure_keys(data)
     bl = data["blacklist"].get(str(update.effective_chat.id), [])
     if not bl:
-        return await update.message.reply_text("🚫 Blacklist khali hai.")
+        return await update.message.reply_text("🚫 The blacklist is empty.")
     await update.message.reply_text(
         "🚫 <b>Blacklisted Words:</b>\n\n" + "\n".join(f"• <code>{w}</code>" for w in bl),
         parse_mode=ParseMode.HTML
@@ -923,7 +1011,7 @@ async def check_blacklist(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
             await update.effective_chat.send_message(
-                f"⚠️ {mention(update.effective_user)}, yeh word allowed nahi hai yahan!",
+                f"⚠️ {mention(update.effective_user)}, that word is not allowed here!",
                 parse_mode=ParseMode.HTML
             )
             return
@@ -931,16 +1019,26 @@ async def check_blacklist(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ─── ANTI-FLOOD ────────────────────────────────────────────────────────────────
 async def setflood(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can configure anti-flood!")
     if not ctx.args or not ctx.args[0].isdigit():
-        return await update.message.reply_text("Usage: /setflood <number> (0 = off)")
+        return await update.message.reply_text(
+            "📝 Usage: /setflood &lt;number&gt;\n"
+            "💡 Set to 0 to disable. Example: /setflood 5",
+            parse_mode=ParseMode.HTML
+        )
     limit = int(ctx.args[0])
     data = load()
     data = ensure_keys(data)
     data["antiflood"][str(update.effective_chat.id)] = limit
     save(data)
-    msg = "disabled" if limit == 0 else f"set to {limit} messages per 10 seconds"
-    await update.message.reply_text(f"✅ Anti-flood {msg}.")
+    if limit == 0:
+        await update.message.reply_text("✅ Anti-flood has been <b>disabled</b>.", parse_mode=ParseMode.HTML)
+    else:
+        await update.message.reply_text(
+            f"✅ Anti-flood set to <b>{limit} messages per 10 seconds</b>.\n"
+            f"⚠️ Flooders will be muted for 5 minutes.",
+            parse_mode=ParseMode.HTML
+        )
 
 async def check_flood(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not update.message or await is_admin(update, ctx):
@@ -968,7 +1066,7 @@ async def check_flood(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 until_date=datetime.now() + timedelta(minutes=5)
             )
             await update.effective_chat.send_message(
-                f"🌊 {mention(update.effective_user)} — Bahut fast messages! 5 min mute.",
+                f"🌊 {mention(update.effective_user)} was muted for 5 minutes due to flooding!",
                 parse_mode=ParseMode.HTML
             )
         except:
@@ -978,25 +1076,34 @@ async def check_flood(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ─── NOTES ─────────────────────────────────────────────────────────────────────
 async def save_note(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can save notes!")
     if len(ctx.args) < 2:
-        return await update.message.reply_text("Usage: /save <name> <content>")
+        return await update.message.reply_text(
+            "📝 Usage: /save &lt;name&gt; &lt;content&gt;",
+            parse_mode=ParseMode.HTML
+        )
     name, content = ctx.args[0].lower(), " ".join(ctx.args[1:])
     data = load()
     data = ensure_keys(data)
     data["notes"].setdefault(str(update.effective_chat.id), {})[name] = content
     save(data)
-    await update.message.reply_text(f"📝 Note `{name}` save ho gaya!", parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(
+        f"📝 Note <code>{name}</code> saved successfully!",
+        parse_mode=ParseMode.HTML
+    )
 
 async def get_note(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not ctx.args:
-        return await update.message.reply_text("Usage: /get <name>")
+        return await update.message.reply_text("📝 Usage: /get &lt;name&gt;", parse_mode=ParseMode.HTML)
     name = ctx.args[0].lower()
     data = load()
     data = ensure_keys(data)
     note = data["notes"].get(str(update.effective_chat.id), {}).get(name)
     if not note:
-        return await update.message.reply_text(f"❌ Note `{name}` nahi mila.", parse_mode=ParseMode.MARKDOWN)
+        return await update.message.reply_text(
+            f"❌ Note <code>{name}</code> not found.",
+            parse_mode=ParseMode.HTML
+        )
     await update.message.reply_text(f"📝 <b>{name}:</b>\n\n{note}", parse_mode=ParseMode.HTML)
 
 async def notes_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1004,17 +1111,18 @@ async def notes_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data = ensure_keys(data)
     notes = data["notes"].get(str(update.effective_chat.id), {})
     if not notes:
-        return await update.message.reply_text("📝 Koi notes nahi hain.")
+        return await update.message.reply_text("📝 No saved notes in this group.")
     await update.message.reply_text(
-        "📝 <b>Saved Notes:</b>\n\n" + "\n".join(f"• <code>{n}</code>" for n in notes),
+        "📝 <b>Saved Notes:</b>\n\n" + "\n".join(f"• <code>{n}</code>" for n in notes) +
+        "\n\n💡 Use /get &lt;name&gt; to retrieve a note.",
         parse_mode=ParseMode.HTML
     )
 
 async def delnote(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can delete notes!")
     if not ctx.args:
-        return await update.message.reply_text("Usage: /delnote <name>")
+        return await update.message.reply_text("📝 Usage: /delnote &lt;name&gt;", parse_mode=ParseMode.HTML)
     name = ctx.args[0].lower()
     data = load()
     data = ensure_keys(data)
@@ -1022,28 +1130,37 @@ async def delnote(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if name in data["notes"].get(cid, {}):
         del data["notes"][cid][name]
         save(data)
-        await update.message.reply_text(f"🗑️ Note `{name}` delete ho gaya!", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(
+            f"🗑️ Note <code>{name}</code> has been deleted!",
+            parse_mode=ParseMode.HTML
+        )
     else:
-        await update.message.reply_text("❌ Note nahi mila.")
+        await update.message.reply_text(f"❌ Note <code>{name}</code> not found.", parse_mode=ParseMode.HTML)
 
 # ─── FILTERS ───────────────────────────────────────────────────────────────────
 async def add_filter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can add filters!")
     if len(ctx.args) < 2:
-        return await update.message.reply_text("Usage: /filter <keyword> <reply>")
+        return await update.message.reply_text(
+            "📝 Usage: /filter &lt;keyword&gt; &lt;reply text&gt;",
+            parse_mode=ParseMode.HTML
+        )
     kw, reply = ctx.args[0].lower(), " ".join(ctx.args[1:])
     data = load()
     data = ensure_keys(data)
     data["filters"].setdefault(str(update.effective_chat.id), {})[kw] = reply
     save(data)
-    await update.message.reply_text(f"✅ Filter `{kw}` add ho gaya!", parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(
+        f"✅ Filter <code>{kw}</code> added successfully!",
+        parse_mode=ParseMode.HTML
+    )
 
 async def del_filter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can delete filters!")
     if not ctx.args:
-        return await update.message.reply_text("Usage: /delfilter <keyword>")
+        return await update.message.reply_text("📝 Usage: /delfilter &lt;keyword&gt;", parse_mode=ParseMode.HTML)
     kw = ctx.args[0].lower()
     data = load()
     data = ensure_keys(data)
@@ -1051,16 +1168,19 @@ async def del_filter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if kw in data["filters"].get(cid, {}):
         del data["filters"][cid][kw]
         save(data)
-        await update.message.reply_text(f"🗑️ Filter `{kw}` remove ho gaya.", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(
+            f"🗑️ Filter <code>{kw}</code> removed!",
+            parse_mode=ParseMode.HTML
+        )
     else:
-        await update.message.reply_text("❌ Filter nahi mila.")
+        await update.message.reply_text(f"❌ Filter <code>{kw}</code> not found.", parse_mode=ParseMode.HTML)
 
 async def filters_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data = load()
     data = ensure_keys(data)
     f = data["filters"].get(str(update.effective_chat.id), {})
     if not f:
-        return await update.message.reply_text("🔍 Koi active filters nahi hain.")
+        return await update.message.reply_text("🔍 No active filters in this group.")
     await update.message.reply_text(
         "🔍 <b>Active Filters:</b>\n\n" + "\n".join(f"• <code>{k}</code>" for k in f),
         parse_mode=ParseMode.HTML
@@ -1078,74 +1198,97 @@ async def check_filters(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(reply)
             break
 
-# ─── PROMOTE / DEMOTE / PIN / DEL ──────────────────────────────────────────────
+# ─── PROMOTE / DEMOTE ──────────────────────────────────────────────────────────
 async def promote(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can promote members!")
     if not await bot_ok(update, ctx):
-        return await update.message.reply_text("❌ Pehle mujhe admin banao!")
+        return await update.message.reply_text("❌ Make me an admin first!")
     user, _ = await resolve(update, ctx)
     if not user:
         return
-    await update.effective_chat.promote_member(
-        user.id,
-        can_change_info=True, can_delete_messages=True,
-        can_invite_users=True, can_restrict_members=True,
-        can_pin_messages=True, can_manage_chat=True
-    )
-    await update.message.reply_text(f"⭐ {mention(user)} admin ban gaya!", parse_mode=ParseMode.HTML)
+    if user.id == ctx.bot.id:
+        return await update.message.reply_text("😅 I can't promote myself!")
+    try:
+        await update.effective_chat.promote_member(
+            user.id,
+            can_change_info=True, can_delete_messages=True,
+            can_invite_users=True, can_restrict_members=True,
+            can_pin_messages=True, can_manage_chat=True
+        )
+        await update.message.reply_text(
+            f"⭐ {mention(user)} has been promoted to Admin!\n"
+            f"👮 <b>By:</b> {mention(update.effective_user)}",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to promote: {e}")
 
 async def demote(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can demote members!")
     if not await bot_ok(update, ctx):
-        return await update.message.reply_text("❌ Pehle mujhe admin banao!")
+        return await update.message.reply_text("❌ Make me an admin first!")
     user, _ = await resolve(update, ctx)
     if not user:
         return
-    await update.effective_chat.promote_member(
-        user.id,
-        can_change_info=False, can_delete_messages=False,
-        can_invite_users=False, can_restrict_members=False,
-        can_pin_messages=False
-    )
-    await update.message.reply_text(f"⬇️ {mention(user)} demote ho gaya.", parse_mode=ParseMode.HTML)
+    try:
+        await update.effective_chat.promote_member(
+            user.id,
+            can_change_info=False, can_delete_messages=False,
+            can_invite_users=False, can_restrict_members=False,
+            can_pin_messages=False
+        )
+        await update.message.reply_text(
+            f"⬇️ {mention(user)} has been demoted from Admin.\n"
+            f"👮 <b>By:</b> {mention(update.effective_user)}",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to demote: {e}")
 
+# ─── PIN / UNPIN / DEL / PURGE ─────────────────────────────────────────────────
 async def pin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can pin messages!")
     if not update.message.reply_to_message:
-        return await update.message.reply_text("📌 Kisi message ko reply karke /pin likho.")
+        return await update.message.reply_text("📌 Reply to a message to pin it.")
     notify = "--notify" in (ctx.args or [])
-    await update.message.reply_to_message.pin(disable_notification=not notify)
-    await update.message.reply_text("📌 Message pin ho gaya!")
+    try:
+        await update.message.reply_to_message.pin(disable_notification=not notify)
+        await update.message.reply_text("📌 Message pinned successfully!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to pin: {e}")
 
 async def unpin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
-    await update.effective_chat.unpin_message()
-    await update.message.reply_text("📌 Message unpin ho gaya!")
+        return await update.message.reply_text("🚫 Only admins can unpin messages!")
+    try:
+        await update.effective_chat.unpin_message()
+        await update.message.reply_text("📌 Latest pinned message has been unpinned!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to unpin: {e}")
 
 async def delete_msg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can delete messages!")
     if not update.message.reply_to_message:
-        return await update.message.reply_text("🗑️ Kisi message ko reply karke /del likho.")
+        return await update.message.reply_text("🗑️ Reply to a message to delete it.")
     try:
         await update.message.reply_to_message.delete()
         await update.message.delete()
     except:
-        await update.message.reply_text("❌ Message delete nahi ho saka.")
+        await update.message.reply_text("❌ Failed to delete message.")
 
 async def purge(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Delete messages from reply to latest"""
+    """Delete messages from replied message to latest"""
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can purge messages!")
     if not update.message.reply_to_message:
-        return await update.message.reply_text("📌 Pehle message reply karo jahan se delete karna hai.")
+        return await update.message.reply_text("📌 Reply to the message you want to start purging from.")
     if not await bot_ok(update, ctx):
-        return await update.message.reply_text("❌ Pehle mujhe admin banao!")
-    
+        return await update.message.reply_text("❌ Make me an admin first!")
+
     start_id = update.message.reply_to_message.message_id
     end_id = update.message.message_id
     count = 0
@@ -1155,9 +1298,8 @@ async def purge(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             count += 1
         except:
             pass
-    
-    notif = await update.effective_chat.send_message(f"🗑️ {count} messages delete ho gaye.")
-    import asyncio
+
+    notif = await update.effective_chat.send_message(f"🗑️ Purged {count} messages successfully!")
     await asyncio.sleep(3)
     try:
         await notif.delete()
@@ -1168,7 +1310,7 @@ async def purge(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def adminlist(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         admins = await update.effective_chat.get_administrators()
-        txt = f"👑 <b>{update.effective_chat.title} — Admins:</b>\n\n"
+        txt = f"👑 <b>{update.effective_chat.title} — Admin List:</b>\n\n"
         for a in admins:
             if a.user.is_bot:
                 continue
@@ -1176,7 +1318,7 @@ async def adminlist(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             txt += f"• {mention(a.user)} — <i>{title}</i>\n"
         await update.message.reply_text(txt, parse_mode=ParseMode.HTML)
     except:
-        await update.message.reply_text("❌ Admin list nahi mili.")
+        await update.message.reply_text("❌ Could not fetch admin list.")
 
 async def chatinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -1189,12 +1331,12 @@ async def chatinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cid = str(chat.id)
     msg_count = sum(data["msg_count"].get(cid, {}).values())
     await update.message.reply_text(
-        f"ℹ️ <b>Group Info</b>\n\n"
-        f"📛 <b>{chat.title}</b>\n"
-        f"🆔 <code>{chat.id}</code>\n"
-        f"👥 Members: <b>{count}</b>\n"
-        f"💬 Total Messages: <b>{msg_count}</b>\n"
-        f"🔗 @{chat.username or 'Private group'}",
+        f"ℹ️ <b>Group Information</b>\n\n"
+        f"📛 <b>Name:</b> {chat.title}\n"
+        f"🆔 <b>ID:</b> <code>{chat.id}</code>\n"
+        f"👥 <b>Members:</b> {count}\n"
+        f"💬 <b>Total Messages:</b> {msg_count}\n"
+        f"🔗 <b>Username:</b> @{chat.username or 'Private group'}",
         parse_mode=ParseMode.HTML
     )
 
@@ -1205,7 +1347,7 @@ async def userinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
     try:
         member = await update.effective_chat.get_member(user.id)
-        role = {"creator": "👑 Owner", "administrator": "⭐ Admin", "member": "👤 Member"}.get(member.status, "Member")
+        role = {"creator": "👑 Owner", "administrator": "⭐ Admin", "member": "👤 Member"}.get(member.status, "👤 Member")
     except:
         role = "Unknown"
     data = load()
@@ -1213,19 +1355,19 @@ async def userinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cid = str(update.effective_chat.id)
     warns = len(data["warns"].get(cid, {}).get(str(user.id), []))
     await update.message.reply_text(
-        f"👤 <b>User Info</b>\n\n"
-        f"📛 <b>{user.full_name}</b>\n"
-        f"🆔 <code>{user.id}</code>\n"
-        f"🔖 @{user.username or 'No username'}\n"
-        f"🤖 Bot: {'Yes' if user.is_bot else 'No'}\n"
-        f"📌 Role: {role}\n"
-        f"⚠️ Warnings: {warns}/{MAX_WARNS}",
+        f"👤 <b>User Information</b>\n\n"
+        f"📛 <b>Name:</b> {user.full_name}\n"
+        f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
+        f"🔖 <b>Username:</b> @{user.username or 'No username'}\n"
+        f"🤖 <b>Bot:</b> {'Yes' if user.is_bot else 'No'}\n"
+        f"📌 <b>Role:</b> {role}\n"
+        f"⚠️ <b>Warnings:</b> {warns}/{MAX_WARNS}",
         parse_mode=ParseMode.HTML
     )
 
 async def stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
+        return await update.message.reply_text("🚫 Only admins can view stats!")
     data = load()
     data = ensure_keys(data)
     cid = str(update.effective_chat.id)
@@ -1237,8 +1379,9 @@ async def stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         member_count = "N/A"
     await update.message.reply_text(
         f"📊 <b>Group Stats — {update.effective_chat.title}</b>\n\n"
-        f"👥 Members: <b>{member_count}</b>\n"
-        f"💬 Total Messages: <b>{msg_count}</b>\n\n"
+        f"👥 <b>Members:</b> {member_count}\n"
+        f"💬 <b>Total Messages:</b> {msg_count}\n\n"
+        f"📋 <b>Moderation Actions:</b>\n"
         f"🔨 Bans: <b>{s.get('bans', 0)}</b>\n"
         f"👢 Kicks: <b>{s.get('kicks', 0)}</b>\n"
         f"🔇 Mutes: <b>{s.get('mutes', 0)}</b>\n"
@@ -1250,22 +1393,46 @@ async def get_id(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
         u = update.message.reply_to_message.from_user
         await update.message.reply_text(
-            f"👤 {mention(u)}\n🆔 <code>{u.id}</code>",
+            f"👤 {mention(u)}\n🆔 <b>User ID:</b> <code>{u.id}</code>",
             parse_mode=ParseMode.HTML
         )
     else:
         await update.message.reply_text(
-            f"🆔 Tumhara ID: <code>{update.effective_user.id}</code>\n"
-            f"💬 Chat ID: <code>{update.effective_chat.id}</code>",
+            f"🆔 <b>Your ID:</b> <code>{update.effective_user.id}</code>\n"
+            f"💬 <b>Chat ID:</b> <code>{update.effective_chat.id}</code>",
             parse_mode=ParseMode.HTML
         )
+
+# ─── TOP USERS ─────────────────────────────────────────────────────────────────
+async def topusers(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Show top 10 most active users"""
+    if not await is_admin(update, ctx):
+        return await update.message.reply_text("🚫 Only admins can view this!")
+    data = load()
+    data = ensure_keys(data)
+    cid = str(update.effective_chat.id)
+    user_msgs = data["msg_count"].get(cid, {})
+    if not user_msgs:
+        return await update.message.reply_text("💬 No message data yet.")
+    sorted_users = sorted(user_msgs.items(), key=lambda x: x[1], reverse=True)[:10]
+    txt = "🏆 <b>Top Active Members:</b>\n\n"
+    medals = ["🥇", "🥈", "🥉"]
+    for i, (uid, count) in enumerate(sorted_users):
+        medal = medals[i] if i < 3 else f"{i+1}."
+        try:
+            member = await update.effective_chat.get_member(int(uid))
+            name = member.user.full_name[:20]
+        except:
+            name = f"User {uid}"
+        txt += f"{medal} {name} — <b>{count}</b> messages\n"
+    await update.message.reply_text(txt, parse_mode=ParseMode.HTML)
 
 # ─── BROADCAST ─────────────────────────────────────────────────────────────────
 async def broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
-        return await update.message.reply_text("🚫 Sirf bot owner ke liye!")
+        return await update.message.reply_text("🚫 Only the bot owner can broadcast!")
     if not ctx.args:
-        return await update.message.reply_text("Usage: /broadcast <message>")
+        return await update.message.reply_text("📢 Usage: /broadcast &lt;message&gt;", parse_mode=ParseMode.HTML)
     msg = " ".join(ctx.args)
     data = load()
     data = ensure_keys(data)
@@ -1280,16 +1447,21 @@ async def broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             sent += 1
         except:
             failed += 1
-    await update.message.reply_text(f"✅ Broadcast done!\n📤 Sent: {sent}\n❌ Failed: {failed}")
+    await update.message.reply_text(
+        f"✅ <b>Broadcast Complete!</b>\n"
+        f"📤 Sent: <b>{sent}</b>\n"
+        f"❌ Failed: <b>{failed}</b>",
+        parse_mode=ParseMode.HTML
+    )
 
 async def mygroups(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Bot owner: see all groups"""
     if update.effective_user.id != OWNER_ID:
-        return await update.message.reply_text("🚫 Sirf bot owner ke liye!")
+        return await update.message.reply_text("🚫 Only the bot owner can use this!")
     data = load()
     data = ensure_keys(data)
     if not data["groups"]:
-        return await update.message.reply_text("❌ Koi group nahi mila.")
+        return await update.message.reply_text("❌ No groups found.")
     txt = f"📂 <b>All Groups ({len(data['groups'])}):</b>\n\n"
     for cid, info in data["groups"].items():
         txt += f"• <b>{info.get('title', 'Unknown')}</b> — <code>{cid}</code>\n"
@@ -1310,51 +1482,54 @@ async def count_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data["msg_count"][cid][uid] = data["msg_count"][cid].get(uid, 0) + 1
     save(data)
 
-async def topusers(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Show top 10 active users"""
-    if not await is_admin(update, ctx):
-        return await update.message.reply_text("🚫 Sirf admins ke liye!")
-    data = load()
-    data = ensure_keys(data)
-    cid = str(update.effective_chat.id)
-    user_msgs = data["msg_count"].get(cid, {})
-    if not user_msgs:
-        return await update.message.reply_text("💬 Koi messages nahi hain abhi.")
-    sorted_users = sorted(user_msgs.items(), key=lambda x: x[1], reverse=True)[:10]
-    txt = "🏆 <b>Top Active Users:</b>\n\n"
-    medals = ["🥇", "🥈", "🥉"]
-    for i, (uid, count) in enumerate(sorted_users):
-        medal = medals[i] if i < 3 else f"{i+1}."
-        try:
-            member = await update.effective_chat.get_member(int(uid))
-            name = member.user.full_name[:20]
-        except:
-            name = f"User {uid}"
-        txt += f"{medal} {name} — <b>{count}</b> messages\n"
-    await update.message.reply_text(txt, parse_mode=ParseMode.HTML)
-
 # ─── CALLBACK HANDLER ──────────────────────────────────────────────────────────
 async def panel_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    
+
     if q.data == "show_help":
         await q.message.reply_text(HELP, parse_mode=ParseMode.HTML)
         return
-    
+
     if q.data == "show_about":
         await q.message.reply_text(
-            "🤖 <b>Mahakaal Bot</b>\n\n"
-            "Ek powerful Telegram group manager.\n\n"
-            "✅ Ban / Kick / Mute / Warn\n"
-            "✅ Anti-flood & Blacklist\n"
-            "✅ Report System\n"
-            "✅ Group Owner Panel\n"
-            "✅ Notes & Filters\n"
-            "✅ Message Counter\n"
-            "✅ Lock / Unlock Group\n\n"
-            "💪 Made with ❤️",
+            "🤖 <b>Group Manager Bot</b>\n\n"
+            "A powerful Telegram group management bot.\n\n"
+            "✅ Ban / Kick / Mute / Warn members\n"
+            "✅ Anti-flood & blacklist protection\n"
+            "✅ Report system for users\n"
+            "✅ Owner control panel (in DM)\n"
+            "✅ Notes & keyword filters\n"
+            "✅ Message activity tracking\n"
+            "✅ Group lock / unlock\n\n"
+            "💪 Built with ❤️",
             parse_mode=ParseMode.HTML
+        )
+        return
+
+    if q.data == "show_my_panel":
+        uid = update.effective_user.id
+        data = load()
+        data = ensure_keys(data)
+        owner_groups = [
+            (cid, info) for cid, info in data["groups"].items()
+            if info.get("owner_id") == uid or uid == OWNER_ID
+        ]
+        if not owner_groups:
+            await q.message.reply_text(
+                "❌ <b>No groups found where you are owner.</b>\n\n"
+                "💡 Add the bot to your group, make it admin, then type /panel in the group first!",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        buttons = [[InlineKeyboardButton(
+            f"📂 {info.get('title', 'Unknown')}",
+            callback_data=f"grppanel_{cid}"
+        )] for cid, info in owner_groups]
+        await q.message.reply_text(
+            "👑 <b>Your Groups</b>\n\nSelect a group to manage:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(buttons)
         )
         return
 
@@ -1362,8 +1537,8 @@ async def panel_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cid = q.data.replace("show_rules_", "")
         data = load()
         data = ensure_keys(data)
-        r = data["rules"].get(cid, "Koi rules set nahi hain abhi.")
-        await q.message.reply_text(f"📋 <b>Rules:</b>\n\n{r}", parse_mode=ParseMode.HTML)
+        r = data["rules"].get(cid, "No rules have been set for this group yet.")
+        await q.message.reply_text(f"📋 <b>Group Rules:</b>\n\n{r}", parse_mode=ParseMode.HTML)
         return
 
     if q.data.startswith("show_admins_"):
@@ -1375,12 +1550,12 @@ async def panel_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     txt += f"• {mention(a.user)}\n"
             await q.message.reply_text(txt, parse_mode=ParseMode.HTML)
         except:
-            await q.message.reply_text("❌ Admins nahi mil sake.")
+            await q.message.reply_text("❌ Could not fetch admin list.")
         return
 
 # ─── HELP ──────────────────────────────────────────────────────────────────────
 HELP = (
-    "🤖 <b>Mahakaal Bot — Commands</b>\n\n"
+    "🤖 <b>Group Manager Bot — Commands</b>\n\n"
     "<b>🛡️ Moderation:</b>\n"
     "/ban · /unban · /kick\n"
     "/mute [10m/2h/1d] · /unmute\n"
@@ -1398,12 +1573,12 @@ HELP = (
     "/adminlist · /chatinfo · /userinfo · /id\n"
     "/stats · /topusers · /banlist\n\n"
     "<b>🚨 Report:</b>\n"
-    "/report — Reply + /report to report\n\n"
+    "Reply to a message + /report to report a user\n\n"
     "<b>👑 Owner Panel:</b>\n"
-    "/panel — Group owner ka private panel\n\n"
+    "/panel — Access your group control panel\n\n"
     "<b>📢 Bot Owner:</b>\n"
     "/broadcast · /mygroups\n\n"
-    "<i>💡 Tip: Reply to message + command = easy target!</i>"
+    "<i>💡 Tip: Reply to a message + command = easy targeting!</i>"
 )
 
 async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1455,15 +1630,15 @@ def main():
     ]:
         app.add_handler(CommandHandler(cmd, fn))
 
-    # Callback handlers
+    # Callback handlers — order matters, most specific first
     app.add_handler(CallbackQueryHandler(report_cb, pattern="^rpt_"))
     app.add_handler(CallbackQueryHandler(group_panel_cb, pattern="^grppanel_|^gp_"))
-    app.add_handler(CallbackQueryHandler(panel_cb, pattern="^show_|^go_admin$|^show_help$|^show_about$"))
+    app.add_handler(CallbackQueryHandler(panel_cb, pattern="^show_|^show_my_panel$"))
 
     # Text handler (must be last)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    logger.info("🚀 Mahakaal Bot running!")
+    logger.info("🚀 Bot is running!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
