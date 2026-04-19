@@ -87,19 +87,11 @@ async def resolve(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
             if arg.isdigit():
                 m = await update.effective_chat.get_member(int(arg))
-                return m.user, reason
             else:
-                # get_member_by_username doesn't exist in PTB v20+
-                # Use bot.get_chat to resolve username, then get_member for chat membership
-                chat_user = await ctx.bot.get_chat(f"@{arg}")
-                try:
-                    m = await update.effective_chat.get_member(chat_user.id)
-                    return m.user, reason
-                except:
-                    # User resolved but not in chat — return their info anyway
-                    return chat_user, reason
+                m = await update.effective_chat.get_member_by_username(arg)
+            return m.user, reason
         except:
-            await msg.reply_text("❌ User not found. Make sure the username is correct or reply to their message.")
+            await msg.reply_text("❌ User not found. Try replying to their message.")
             return None, None
     await msg.reply_text("❌ Reply to a message or provide @username.")
     return None, None
@@ -264,6 +256,10 @@ async def ban(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not user:
         return
 
+    # Can't ban bot owner
+    if user.id == OWNER_ID:
+        return await update.message.reply_text("🛡️ The bot owner cannot be banned!")
+
     # Can't ban group owner/creator
     try:
         target_member = await update.effective_chat.get_member(user.id)
@@ -272,9 +268,9 @@ async def ban(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-    # Admins can only be banned by group owner
+    # Admins can only be banned by group owner or bot owner
     if await is_admin(update, ctx, user.id):
-        if not await is_group_owner(update):
+        if not (await is_group_owner(update) or update.effective_user.id == OWNER_ID):
             return await update.message.reply_text("⚠️ Only the group owner can ban an admin!")
 
     await update.effective_chat.ban_member(user.id)
@@ -329,6 +325,8 @@ async def kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user, reason = await resolve(update, ctx)
     if not user:
         return
+    if user.id == OWNER_ID:
+        return await update.message.reply_text("🛡️ The bot owner cannot be kicked!")
     try:
         target = await update.effective_chat.get_member(user.id)
         if target.status == "creator":
@@ -336,7 +334,7 @@ async def kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except:
         pass
     if await is_admin(update, ctx, user.id):
-        if not await is_group_owner(update):
+        if not (await is_group_owner(update) or update.effective_user.id == OWNER_ID):
             return await update.message.reply_text("⚠️ Only the group owner can kick an admin!")
     await update.effective_chat.ban_member(user.id)
     await update.effective_chat.unban_member(user.id)
@@ -359,6 +357,8 @@ async def mute(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user, reason = await resolve(update, ctx)
     if not user:
         return
+    if user.id == OWNER_ID:
+        return await update.message.reply_text("🛡️ The bot owner cannot be muted!")
     try:
         target = await update.effective_chat.get_member(user.id)
         if target.status == "creator":
@@ -366,7 +366,7 @@ async def mute(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except:
         pass
     if await is_admin(update, ctx, user.id):
-        if not await is_group_owner(update):
+        if not (await is_group_owner(update) or update.effective_user.id == OWNER_ID):
             return await update.message.reply_text("⚠️ Only the group owner can mute an admin!")
     args = ctx.args or []
     duration, time_str = None, ""
@@ -438,6 +438,8 @@ async def warn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user, reason = await resolve(update, ctx)
     if not user:
         return
+    if user.id == OWNER_ID:
+        return await update.message.reply_text("🛡️ The bot owner cannot be warned!")
     try:
         target = await update.effective_chat.get_member(user.id)
         if target.status == "creator":
@@ -723,19 +725,44 @@ async def panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
 
     if chat.type == "private":
-        # Show list of groups where user is owner
+        # In private chat — scan ALL groups the bot is in to find ones this user owns
         data = load()
         data = ensure_keys(data)
+
+        # First: check already-registered groups
         owner_groups = [
             (cid, info) for cid, info in data["groups"].items()
-            if info.get("owner_id") == uid or uid == OWNER_ID
+            if info.get("owner_id") == uid
         ]
+
+        # Second: if none found, try to auto-discover by checking Telegram API
+        if not owner_groups:
+            for cid, info in data["groups"].items():
+                try:
+                    member = await ctx.bot.get_chat_member(int(cid), uid)
+                    if member.status == "creator":
+                        # Found! Register this user as owner now
+                        data["groups"][cid]["owner_id"] = uid
+                        owner_groups.append((cid, info))
+                except:
+                    pass
+            if owner_groups:
+                save(data)
+
+        # Bot owner can see all groups
+        if uid == OWNER_ID and not owner_groups:
+            owner_groups = list(data["groups"].items())
+
         if not owner_groups:
             return await update.message.reply_text(
                 "❌ <b>No groups found where you are the owner.</b>\n\n"
-                "💡 Go to your group and type /panel there first so the bot registers you as owner!",
+                "💡 Make sure:\n"
+                "• You are the <b>creator</b> of the group (not just admin)\n"
+                "• The bot is added to your group and is an admin\n"
+                "• Try typing /panel inside your group first",
                 parse_mode=ParseMode.HTML
             )
+
         buttons = []
         for cid, info in owner_groups:
             buttons.append([InlineKeyboardButton(
@@ -749,14 +776,35 @@ async def panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # In group — check if owner or bot owner
-    if not await is_group_owner(update) and uid != OWNER_ID:
+    # ── In a group ──────────────────────────────────────────
+    # Check if the person typing is the group creator
+    try:
+        member = await chat.get_member(uid)
+        is_creator = member.status == "creator"
+    except:
+        is_creator = False
+
+    if not is_creator and uid != OWNER_ID:
         return await update.message.reply_text(
             "🚫 Only the group owner can use /panel!\n"
             "💡 Admins can use /stats instead."
         )
 
-    # FIX: Send panel link to DM for easier access
+    # Register/update owner in data
+    data = load()
+    data = ensure_keys(data)
+    cid = str(chat.id)
+    data["groups"].setdefault(cid, {
+        "title": chat.title,
+        "id": chat.id,
+        "username": chat.username or "",
+        "added": datetime.now().isoformat()
+    })
+    data["groups"][cid]["owner_id"] = uid
+    data["groups"][cid]["title"] = chat.title
+    save(data)
+
+    # Send deep link button to open panel in DM
     bot_username = ctx.bot.username
     deep_link = f"https://t.me/{bot_username}?start=panel_{chat.id}"
     kb = InlineKeyboardMarkup([[
@@ -764,7 +812,8 @@ async def panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ]])
     await update.message.reply_text(
         f"👑 <b>Owner Panel Ready!</b>\n\n"
-        f"Click the button below to open your full control panel in private chat 👇",
+        f"✅ You have been registered as owner of <b>{chat.title}</b>.\n"
+        f"Click below to open your full control panel in DM 👇",
         parse_mode=ParseMode.HTML,
         reply_markup=kb
     )
@@ -820,8 +869,25 @@ async def show_group_panel(update, ctx, cid):
     data = load()
     data = ensure_keys(data)
     group_info = data["groups"].get(cid, {})
-    if group_info.get("owner_id") != uid and uid != OWNER_ID:
+
+    # Check stored owner_id first
+    is_owner = group_info.get("owner_id") == uid or uid == OWNER_ID
+
+    # If not found in data, verify via Telegram API
+    if not is_owner:
+        try:
+            member = await ctx.bot.get_chat_member(int(cid), uid)
+            if member.status == "creator":
+                is_owner = True
+                # Save for next time
+                data["groups"].setdefault(cid, {})["owner_id"] = uid
+                save(data)
+        except:
+            pass
+
+    if not is_owner:
         return await update.message.reply_text("🚫 This panel is only for the group owner!")
+
     await show_group_panel_inline(update, ctx, cid)
 
 async def group_panel_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1511,12 +1577,32 @@ async def panel_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         data = ensure_keys(data)
         owner_groups = [
             (cid, info) for cid, info in data["groups"].items()
-            if info.get("owner_id") == uid or uid == OWNER_ID
+            if info.get("owner_id") == uid
         ]
+
+        # Auto-discover: check Telegram API for groups where user is creator
+        if not owner_groups:
+            for cid, info in data["groups"].items():
+                try:
+                    member = await q.bot.get_chat_member(int(cid), uid)
+                    if member.status == "creator":
+                        data["groups"][cid]["owner_id"] = uid
+                        owner_groups.append((cid, info))
+                except:
+                    pass
+            if owner_groups:
+                save(data)
+
+        if uid == OWNER_ID and not owner_groups:
+            owner_groups = list(data["groups"].items())
+
         if not owner_groups:
             await q.message.reply_text(
                 "❌ <b>No groups found where you are owner.</b>\n\n"
-                "💡 Add the bot to your group, make it admin, then type /panel in the group first!",
+                "💡 Make sure:\n"
+                "• You are the <b>creator</b> of the group (not just admin)\n"
+                "• The bot is in your group and is an admin\n"
+                "• Try typing /panel inside your group first!",
                 parse_mode=ParseMode.HTML
             )
             return
