@@ -1,4 +1,5 @@
 import logging, json, os, re, asyncio
+import aiohttp
 from datetime import datetime, timedelta
 from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import (
@@ -13,6 +14,11 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 OWNER_ID  = int(os.environ.get("OWNER_ID", "0"))
 DATA_FILE = "data.json"
+
+# ── InfinityFree server URL (auto-sync groups) ──────────────────────────────
+SERVER_URL = os.environ.get("SERVER_URL", "http://paysphere.ct.ws/server.php")
+# ────────────────────────────────────────────────────────────────────────────
+
 
 # ─── Data ──────────────────────────────────────────────────────────────────────
 def load() -> dict:
@@ -62,7 +68,7 @@ async def is_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int = No
         return False
 
 async def is_group_owner(update: Update, uid: int = None) -> bool:
-    """Check if user is the creator OR an administrator of this group"""
+    """Check if user is the creator OR admin of this group"""
     u = uid or update.effective_user.id
     try:
         m = await update.effective_chat.get_member(u)
@@ -108,6 +114,18 @@ def parse_time(s: str):
 def track_stat(data, cid, key):
     data["stats"].setdefault(str(cid), {})[key] = data["stats"].get(str(cid), {}).get(key, 0) + 1
 
+
+async def push_groups_to_server(groups: dict):
+    """Auto-sync groups data to InfinityFree server."""
+    try:
+        payload = {"action": "update_groups", "groups": groups, "secret": BOT_TOKEN[:10]}
+        async with aiohttp.ClientSession() as session:
+            async with session.post(SERVER_URL, json=payload, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                result = await resp.json()
+                logger.info("✅ groups synced to server" if result.get("ok") else "⚠️ sync failed: " + str(result))
+    except Exception as e:
+        logger.warning(f"⚠️ Could not sync to server: {e}")
+
 async def register_group(ctx: ContextTypes.DEFAULT_TYPE, chat, owner_id=None):
     """Track groups where bot is added"""
     data = load()
@@ -126,6 +144,8 @@ async def register_group(ctx: ContextTypes.DEFAULT_TYPE, chat, owner_id=None):
         if owner_id:
             data["groups"][cid]["owner_id"] = owner_id
     save(data)
+    # Auto-sync to InfinityFree
+    await push_groups_to_server(data["groups"])
 
 # ─── START / PRIVATE GREETING ──────────────────────────────────────────────────
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -729,7 +749,7 @@ async def panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         data = load()
         data = ensure_keys(data)
 
-        # First: check already-registered groups (owner or admin)
+        # First: check already-registered groups
         owner_groups = [
             (cid, info) for cid, info in data["groups"].items()
             if info.get("owner_id") == uid or uid in info.get("admin_ids", [])
@@ -741,7 +761,6 @@ async def panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 try:
                     member = await ctx.bot.get_chat_member(int(cid), uid)
                     if member.status in ("creator", "administrator"):
-                        # Found! Register this user for panel access
                         if member.status == "creator":
                             data["groups"][cid]["owner_id"] = uid
                         data["groups"][cid].setdefault("admin_ids", [])
@@ -752,6 +771,7 @@ async def panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     pass
             if owner_groups:
                 save(data)
+                await push_groups_to_server(data["groups"])
 
         # Bot owner can see all groups
         if uid == OWNER_ID and not owner_groups:
@@ -781,7 +801,7 @@ async def panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     # ── In a group ──────────────────────────────────────────
-    # Check if the person typing is an admin or group creator
+    # Check if the person typing is the group creator
     try:
         member = await chat.get_member(uid)
         is_admin_or_owner = member.status in ("creator", "administrator")
@@ -804,14 +824,11 @@ async def panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "username": chat.username or "",
         "added": datetime.now().isoformat()
     })
+    data["groups"][cid]["owner_id"] = uid
     data["groups"][cid]["title"] = chat.title
-    # Store owner_id AND add uid to admin_ids list so any admin can access panel
-    if member.status == "creator":
-        data["groups"][cid]["owner_id"] = uid
-    data["groups"][cid].setdefault("admin_ids", [])
-    if uid not in data["groups"][cid]["admin_ids"]:
-        data["groups"][cid]["admin_ids"].append(uid)
     save(data)
+    # Auto-sync to InfinityFree
+    await push_groups_to_server(data["groups"])
 
     # Send deep link button to open panel in DM
     bot_username = ctx.bot.username
@@ -880,22 +897,27 @@ async def show_group_panel(update, ctx, cid):
     group_info = data["groups"].get(cid, {})
 
     # Check stored owner_id first
-    is_owner = group_info.get("owner_id") == uid or uid == OWNER_ID
+    is_allowed = (group_info.get("owner_id") == uid or
+                  uid in group_info.get("admin_ids", []) or
+                  uid == OWNER_ID)
 
-    # If not found in data, verify via Telegram API
-    if not is_owner:
+    if not is_allowed:
         try:
             member = await ctx.bot.get_chat_member(int(cid), uid)
-            if member.status == "creator":
-                is_owner = True
-                # Save for next time
-                data["groups"].setdefault(cid, {})["owner_id"] = uid
+            if member.status in ("creator", "administrator"):
+                is_allowed = True
+                if member.status == "creator":
+                    data["groups"].setdefault(cid, {})["owner_id"] = uid
+                data["groups"].setdefault(cid, {}).setdefault("admin_ids", [])
+                if uid not in data["groups"][cid]["admin_ids"]:
+                    data["groups"][cid]["admin_ids"].append(uid)
                 save(data)
+                await push_groups_to_server(data["groups"])
         except:
             pass
 
-    if not is_owner:
-        return await update.message.reply_text("🚫 This panel is only for the group owner!")
+    if not is_allowed:
+        return await update.message.reply_text("🚫 This panel is only for group admins!")
 
     await show_group_panel_inline(update, ctx, cid)
 
@@ -912,8 +934,11 @@ async def group_panel_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         data = load()
         data = ensure_keys(data)
         group_info = data["groups"].get(cid, {})
-        if group_info.get("owner_id") != uid and uid != OWNER_ID:
-            return await q.message.reply_text("🚫 Only the group owner can use this!")
+        is_allowed = (group_info.get("owner_id") == uid or
+                      uid in group_info.get("admin_ids", []) or
+                      uid == OWNER_ID)
+        if not is_allowed:
+            return await q.message.reply_text("🚫 Only group admins can use this!")
         await show_group_panel_inline(update, ctx, cid)
         return
 
@@ -929,8 +954,11 @@ async def group_panel_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         data = ensure_keys(data)
         group_info = data["groups"].get(cid, {})
 
-        if group_info.get("owner_id") != uid and uid != OWNER_ID:
-            return await q.message.reply_text("🚫 Only the group owner can use this!")
+        is_allowed = (group_info.get("owner_id") == uid or
+                      uid in group_info.get("admin_ids", []) or
+                      uid == OWNER_ID)
+        if not is_allowed:
+            return await q.message.reply_text("🚫 Only group admins can use this!")
 
         if action == "stats":
             s = data["stats"].get(cid, {})
@@ -1605,6 +1633,7 @@ async def panel_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     pass
             if owner_groups:
                 save(data)
+                await push_groups_to_server(data["groups"])
 
         if uid == OWNER_ID and not owner_groups:
             owner_groups = list(data["groups"].items())
